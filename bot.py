@@ -477,6 +477,8 @@ def main():
     logger.info("Starting bot...")
     
     async def run_bot_and_server():
+        from aiohttp import web
+        
         # Start web server
         app, port = await web_server()
         runner = web.AppRunner(app)
