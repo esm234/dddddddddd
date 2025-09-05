@@ -7,6 +7,7 @@ Telegram Bot for HTML Question Extraction
 import os
 import json
 import logging
+import asyncio
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -198,7 +199,7 @@ class QuestionExtractionBot:
         except Exception as e:
             logger.error(f"Error cleaning up files: {e}")
 
-def main():
+async def main():
     """Main function to run the bot"""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not found in environment variables")
@@ -216,9 +217,45 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
     application.add_handler(CallbackQueryHandler(bot.handle_category_selection, pattern="^cat_"))
     
+    # Get port from environment variable (Render sets this)
+    port = int(os.getenv('PORT', 8000))
+    
     # Start the bot
-    logger.info("Starting bot...")
-    application.run_polling()
+    logger.info(f"Starting bot on port {port}...")
+    
+    # For Render deployment, we need to run both polling and a web server
+    # This creates a simple web server that Render can detect
+    from aiohttp import web
+    
+    async def health_check(request):
+        return web.Response(text="Bot is running", status=200)
+    
+    # Create web app for health checks
+    web_app = web.Application()
+    web_app.router.add_get('/', health_check)
+    web_app.router.add_get('/health', health_check)
+    
+    # Start web server
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    # Start bot polling
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # Keep running
+    try:
+        await asyncio.Future()  # Run forever
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+        await runner.cleanup()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
