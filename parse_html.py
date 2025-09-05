@@ -45,7 +45,7 @@ class HTMLResultsParser:
             self.questions = []
             self.current_passage = ""
             
-            soup = BeautifulSoup(html_content, 'html.parser')
+            soup = BeautifulSoup(html_content, 'html5lib')
             
             # Extract form title
             form_title = self.extract_form_title(soup)
@@ -67,18 +67,29 @@ class HTMLResultsParser:
             
             # Extract questions
             question_number = 1
+            passage_found = False
+            
             for i, container in enumerate(question_containers):
                 try:
                     # Check if this is a passage (for reading comprehension)
-                    if category == "استيعاب المقروء":
+                    if category == "استيعاب المقروء" and not passage_found:
                         passage_text = self.extract_passage_text(container)
                         if passage_text:
                             self.current_passage = passage_text
+                            passage_found = True
                             print(f"Found passage: {passage_text[:100]}...")
                             continue
                     
+                    # Extract question data
                     question_data = self.extract_question_from_container(container, question_number, category)
                     if question_data:
+                        # Additional validation for reading comprehension
+                        if category == "استيعاب المقروء":
+                            # Ensure question is related to the passage
+                            if not self.is_question_related_to_passage(question_data['question']):
+                                print(f"Skipping unrelated question: {question_data['question'][:50]}...")
+                                continue
+                        
                         question_data["exam"] = form_title
                         question_data["category"] = category
                         if category == "استيعاب المقروء" and self.current_passage:
@@ -134,13 +145,79 @@ class HTMLResultsParser:
             text_element = container.select_one('.M7eMe')
             if text_element:
                 text = text_element.get_text().strip()
-                # Check if this looks like a passage (long text, no radiogroup)
-                if len(text) > 50 and not container.select_one('[role="radiogroup"]'):
+                
+                # Enhanced validation for passage text
+                if self.is_valid_passage(text, container):
                     return text
+            
+            # Try alternative selectors for passage text
+            alternative_selectors = [
+                '.freebirdFormviewerViewItemsItemItemTitle',
+                '.freebirdFormviewerViewItemsItemItemDescription',
+                'div[role="heading"] + div',
+                '.M7eMe span'
+            ]
+            
+            for selector in alternative_selectors:
+                element = container.select_one(selector)
+                if element:
+                    text = element.get_text().strip()
+                    if self.is_valid_passage(text, container):
+                        return text
+            
             return ""
         except Exception as e:
             print(f"Error extracting passage text: {e}")
             return ""
+    
+    def is_valid_passage(self, text: str, container) -> bool:
+        """Validate if text is a proper passage for reading comprehension"""
+        try:
+            # Basic length check
+            if len(text) < 30:
+                return False
+            
+            # Check if container has radiogroup (indicates it's a question, not passage)
+            if container.select_one('[role="radiogroup"]'):
+                return False
+            
+            # Check for question indicators that suggest this is not a passage
+            question_indicators = [
+                "؟", "?", "اختر", "أي", "ما", "متى", "أين", "كيف", "لماذا",
+                "أكمل", "ضع", "حدد", "اذكر", "اشرح", "قارن", "وضح"
+            ]
+            
+            # If text starts with question indicators, it's likely a question
+            for indicator in question_indicators:
+                if text.strip().startswith(indicator):
+                    return False
+            
+            # Check for multiple sentences (passages usually have multiple sentences)
+            sentence_count = text.count('.') + text.count('؟') + text.count('!')
+            if sentence_count < 2:
+                return False
+            
+            # Check for Arabic text content (most passages are in Arabic)
+            arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
+            if arabic_chars < len(text) * 0.3:  # At least 30% Arabic characters
+                return False
+            
+            # Check if text contains common passage patterns
+            passage_patterns = [
+                "في النص", "من النص", "النص يتحدث", "يذكر النص", "وفقاً للنص",
+                "بناءً على النص", "من خلال النص", "النص يشير", "النص يوضح"
+            ]
+            
+            # If text contains passage patterns, it's likely a question about a passage
+            for pattern in passage_patterns:
+                if pattern in text:
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error validating passage: {e}")
+            return False
     
     def extract_question_from_container(self, container, question_number: int, category: str) -> Optional[Dict[str, Any]]:
         """Extract question data from a single container"""
@@ -197,21 +274,112 @@ class HTMLResultsParser:
             question_element = container.select_one('.M7eMe')
             if question_element:
                 text = question_element.get_text().strip()
-                if text:
+                if text and self.is_valid_question_text(text):
                     return text
             
             # Fallback: look for any heading
             heading = container.select_one('[role="heading"]')
             if heading:
                 text = heading.get_text().strip()
-                if text:
+                if text and self.is_valid_question_text(text):
                     return text
+            
+            # Try alternative selectors
+            alternative_selectors = [
+                '.freebirdFormviewerViewItemsItemItemTitle',
+                '.freebirdFormviewerViewItemsItemItemDescription',
+                'div[role="heading"] + div .M7eMe'
+            ]
+            
+            for selector in alternative_selectors:
+                element = container.select_one(selector)
+                if element:
+                    text = element.get_text().strip()
+                    if text and self.is_valid_question_text(text):
+                        return text
             
             return ""
             
         except Exception as e:
             print(f"Error extracting question text: {e}")
             return ""
+    
+    def is_valid_question_text(self, text: str) -> bool:
+        """Validate if text is a proper question"""
+        try:
+            # Basic length check
+            if len(text) < 5:
+                return False
+            
+            # Skip non-question fields (student name, password, test title)
+            skip_questions = [
+                "اسم الطالب", "كلمة المرور", "الاختبار", "اسم الطالب :", 
+                "كلمة المرور:", "الاختبار :", "النتيجة", "الدرجة",
+                "التاريخ", "الوقت", "المدة", "المرحلة", "الصف"
+            ]
+            
+            for skip_text in skip_questions:
+                if skip_text in text:
+                    return False
+            
+            # Check for question indicators
+            question_indicators = [
+                "؟", "?", "اختر", "أي", "ما", "متى", "أين", "كيف", "لماذا",
+                "أكمل", "ضع", "حدد", "اذكر", "اشرح", "قارن", "وضح",
+                "في النص", "من النص", "النص يتحدث", "يذكر النص", "وفقاً للنص"
+            ]
+            
+            # Check if text contains question indicators
+            for indicator in question_indicators:
+                if indicator in text:
+                    return True
+            
+            # Check for Arabic text content
+            arabic_chars = sum(1 for char in text if '\u0600' <= char <= '\u06FF')
+            if arabic_chars < len(text) * 0.5:  # At least 50% Arabic characters
+                return False
+            
+            # If text is long and doesn't contain question indicators, it might be a passage
+            if len(text) > 100 and not any(indicator in text for indicator in question_indicators):
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error validating question text: {e}")
+            return False
+    
+    def is_question_related_to_passage(self, question_text: str) -> bool:
+        """Check if question is related to reading comprehension passage"""
+        try:
+            # Check for reading comprehension question patterns
+            passage_question_patterns = [
+                "في النص", "من النص", "النص يتحدث", "يذكر النص", "وفقاً للنص",
+                "بناءً على النص", "من خلال النص", "النص يشير", "النص يوضح",
+                "النص يدل", "النص يعبر", "النص يصف", "النص يبين", "النص يوضح",
+                "ما المقصود", "ما المعنى", "ما المقصود بـ", "ما معنى",
+                "أي مما يلي", "أي من", "أي مما يأتي", "أي من الآتي"
+            ]
+            
+            # Check if question contains passage-related patterns
+            for pattern in passage_question_patterns:
+                if pattern in question_text:
+                    return True
+            
+            # Check for question words that indicate reading comprehension
+            question_words = ["ما", "أي", "متى", "أين", "كيف", "لماذا", "من"]
+            if any(word in question_text for word in question_words):
+                return True
+            
+            # If question is very short and doesn't contain passage patterns, it might not be related
+            if len(question_text) < 20 and not any(pattern in question_text for pattern in passage_question_patterns):
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error checking question relation to passage: {e}")
+            return True  # Default to True to avoid skipping valid questions
     
     def extract_choices(self, container) -> List[str]:
         """Extract all choices from container"""
