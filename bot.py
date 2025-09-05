@@ -8,7 +8,6 @@ import os
 import json
 import logging
 import asyncio
-import requests
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -44,34 +43,20 @@ class QuestionExtractionBot:
         welcome_text = """
 🎓 أهلاً بك في بوت استخراج الأسئلة من HTML
 
-📋 هذا البوت يساعدك في استخراج الأسئلة من ملفات HTML أو روابط صفحات النتائج
+📋 هذا البوت يساعدك في استخراج الأسئلة من ملفات HTML وحفظها في ملفات JSON
 
-📤 اختر طريقة الإدخال:
+📤 أرسل ملف HTML لبدء الاستخراج
         """
-        
-        # Create main menu keyboard
-        keyboard = [
-            [InlineKeyboardButton("📄 إرسال ملف HTML", callback_data="upload_html")],
-            [InlineKeyboardButton("🔗 إرسال رابط صفحة النتائج", callback_data="upload_url")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        await update.message.reply_text(welcome_text)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Help command handler"""
         help_text = """
 🆘 مساعدة البوت:
 
-📤 طرق الإدخال:
-1️⃣ إرسال ملف HTML
-2️⃣ إرسال رابط صفحة النتائج
-
-📋 خطوات الاستخراج:
-1️⃣ اختر طريقة الإدخال
-2️⃣ أرسل الملف أو الرابط
-3️⃣ اختر نوع القسم من القائمة
-4️⃣ احصل على ملف JSON بالأسئلة المستخرجة
+1️⃣ أرسل ملف HTML
+2️⃣ اختر نوع القسم من القائمة
+3️⃣ احصل على ملف JSON بالأسئلة المستخرجة
 
 📝 الأقسام المدعومة:
 • التناظر اللفظي
@@ -82,100 +67,11 @@ class QuestionExtractionBot:
         """
         await update.message.reply_text(help_text)
     
-    async def handle_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle main menu selection"""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            if query.data == "upload_html":
-                await query.edit_message_text(
-                    "📄 أرسل ملف HTML الآن\n\n"
-                    "يجب أن يكون الملف بصيغة .html"
-                )
-                # Set user state to expect HTML file
-                context.user_data['expecting'] = 'html_file'
-                
-            elif query.data == "upload_url":
-                await query.edit_message_text(
-                    "🔗 أرسل رابط صفحة النتائج الآن\n\n"
-                    "مثال: https://forms.gle/example"
-                )
-                # Set user state to expect URL
-                context.user_data['expecting'] = 'url'
-                
-        except Exception as e:
-            logger.error(f"Error handling main menu: {e}")
-            await query.edit_message_text("❌ حدث خطأ في معالجة الطلب")
-    
-    async def handle_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle URL input"""
-        try:
-            user_id = update.effective_user.id
-            url = update.message.text.strip()
-            
-            # Validate URL
-            if not url.startswith(('http://', 'https://')):
-                await update.message.reply_text("❌ يرجى إرسال رابط صحيح يبدأ بـ http:// أو https://")
-                return
-            
-            # Show processing message
-            processing_msg = await update.message.reply_text("⏳ جاري جلب محتوى الصفحة...")
-            
-            try:
-                # Fetch HTML content from URL
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-                response = requests.get(url, headers=headers, timeout=30)
-                response.raise_for_status()
-                
-                html_content = response.text
-                
-                # Update processing message
-                await processing_msg.edit_text("⏳ تم جلب المحتوى بنجاح! جاري معالجة البيانات...")
-                
-                # Store HTML content in user session
-                self.user_sessions[user_id] = {
-                    'html_content': html_content,
-                    'source': 'url',
-                    'url': url
-                }
-                
-                # Show category selection
-                await self.show_category_selection(update, context)
-                
-            except requests.RequestException as e:
-                await processing_msg.edit_text(f"❌ خطأ في جلب المحتوى من الرابط: {str(e)}")
-                return
-                
-        except Exception as e:
-            logger.error(f"Error handling URL: {e}")
-            await update.message.reply_text("❌ حدث خطأ في معالجة الرابط")
-    
-    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text messages (URLs)"""
-        if context.user_data.get('expecting') == 'url':
-            await self.handle_url(update, context)
-        else:
-            await update.message.reply_text(
-                "❌ يرجى استخدام القائمة الرئيسية أولاً\n"
-                "اضغط /start لبدء الاستخدام"
-            )
-    
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle HTML file uploads"""
         try:
             user_id = update.effective_user.id
             document = update.message.document
-            
-            # Check if user is expecting HTML file
-            if context.user_data.get('expecting') != 'html_file':
-                await update.message.reply_text(
-                    "❌ يرجى استخدام القائمة الرئيسية أولاً\n"
-                    "اضغط /start لبدء الاستخدام"
-                )
-                return
             
             # Check if file is HTML
             if not document.file_name.lower().endswith('.html'):
@@ -191,12 +87,8 @@ class QuestionExtractionBot:
             # Store file info in user session
             self.user_sessions[user_id] = {
                 'file_path': file_path,
-                'file_name': document.file_name,
-                'source': 'file'
+                'file_name': document.file_name
             }
-            
-            # Clear expecting state
-            context.user_data.pop('expecting', None)
             
             # Show category selection
             await self.show_category_selection(update, context)
@@ -242,22 +134,14 @@ class QuestionExtractionBot:
             # Show processing message
             await query.edit_message_text("⏳ جاري معالجة الملف...")
             
-            # Process the file or URL content
+            # Process the file
             file_info = self.user_sessions[user_id]
+            file_path = file_info['file_path']
+            file_name = file_info['file_name']
             
             # Create new parser instance for each file to avoid merging
             parser = HTMLResultsParser()
-            
-            if file_info['source'] == 'url':
-                # Process HTML content from URL
-                html_content = file_info['html_content']
-                questions = parser.parse_html_content_from_string(html_content, category)
-                file_name = "results_from_url.html"
-            else:
-                # Process HTML file
-                file_path = file_info['file_path']
-                file_name = file_info['file_name']
-                questions = parser.parse_html_file(file_path, category)
+            questions = parser.parse_html_file(file_path, category)
             
             if not questions:
                 await query.edit_message_text("❌ لم يتم العثور على أسئلة في الملف")
@@ -303,21 +187,11 @@ class QuestionExtractionBot:
         """Clean up temporary files"""
         try:
             if user_id in self.user_sessions:
-                file_info = self.user_sessions[user_id]
+                file_path = self.user_sessions[user_id]['file_path']
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                 
-                # Only clean up file if it was uploaded (not from URL)
-                if file_info['source'] == 'file' and 'file_path' in file_info:
-                    file_path = file_info['file_path']
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                
-                # Clean up output file
-                if file_info['source'] == 'url':
-                    output_filename = "results_from_url.json"
-                else:
-                    output_filename = file_info['file_name'].replace('.html', '.json')
-                
-                output_path = f"output_{user_id}_{output_filename}"
+                output_path = f"output_{user_id}_{self.user_sessions[user_id]['file_name'].replace('.html', '.json')}"
                 if os.path.exists(output_path):
                     os.remove(output_path)
                 
@@ -341,8 +215,6 @@ async def main():
     application.add_handler(CommandHandler("start", bot.start))
     application.add_handler(CommandHandler("help", bot.help_command))
     application.add_handler(MessageHandler(filters.Document.ALL, bot.handle_document))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text_message))
-    application.add_handler(CallbackQueryHandler(bot.handle_main_menu, pattern="^(upload_html|upload_url)$"))
     application.add_handler(CallbackQueryHandler(bot.handle_category_selection, pattern="^cat_"))
     
     # Get port from environment variable (Render sets this)
