@@ -7,6 +7,7 @@ Telegram Bot for HTML Question Extraction
 import os
 import json
 import logging
+import asyncio
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -437,6 +438,20 @@ class QuestionExtractionBot:
         except Exception as e:
             logger.error(f"Error cleaning up files: {e}")
 
+async def web_server():
+    """Simple web server to keep the port alive"""
+    from aiohttp import web
+    
+    async def health_check(request):
+        return web.Response(text="Bot is running!", status=200)
+    
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    
+    port = int(os.getenv('PORT', 8000))
+    return app, port
+
 def main():
     """Main function to run the bot"""
     if not BOT_TOKEN:
@@ -458,9 +473,36 @@ def main():
     application.add_handler(CallbackQueryHandler(bot.execute_merge, pattern="^execute_merge$"))
     application.add_handler(CallbackQueryHandler(bot.cancel_merge, pattern="^cancel_merge$"))
     
-    # Start the bot
+    # Start the bot and web server
     logger.info("Starting bot...")
-    application.run_polling()
+    
+    async def run_bot_and_server():
+        # Start web server
+        app, port = await web_server()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        logger.info(f"Web server started on port {port}")
+        
+        # Start bot
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        
+        # Keep running
+        try:
+            await asyncio.Future()  # Run forever
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+        finally:
+            await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+            await runner.cleanup()
+    
+    # Run the bot and web server
+    asyncio.run(run_bot_and_server())
 
 if __name__ == "__main__":
     main()
