@@ -34,6 +34,7 @@ const QuestionDisplay = () => {
   const [isInstructionModalOpen, setIsInstructionModalOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
+  const [tempSelectedAnswer, setTempSelectedAnswer] = useState(null);
 
   const {
     examQuestions,
@@ -74,6 +75,15 @@ const QuestionDisplay = () => {
       };
     }
   }, []);
+
+  // تهيئة الإجابة المؤقتة عند تغيير السؤال
+  useEffect(() => {
+    if (examQuestions && examQuestions.length > 0 && currentQuestionIndex < examQuestions.length) {
+      const currentQuestion = examQuestions[currentQuestionIndex];
+      const currentAnswer = userAnswers[currentQuestion?.question_number];
+      setTempSelectedAnswer(currentAnswer !== undefined ? currentAnswer : null);
+    }
+  }, [currentQuestionIndex, examQuestions, userAnswers]);
 
   // Add keyboard navigation
   useEffect(() => {
@@ -242,7 +252,7 @@ const QuestionDisplay = () => {
   }
 
   const currentQuestion = examQuestions[currentQuestionIndex];
-  const selectedAnswer = userAnswers[currentQuestion.question_number];
+  const selectedAnswer = tempSelectedAnswer; // استخدام الإجابة المؤقتة
   const isDeferred = deferredQuestions[currentQuestion.question_number];
   const isLastQuestion = currentQuestionIndex === examQuestions.length - 1;
   const isFirstQuestion = currentQuestionIndex === 0;
@@ -279,7 +289,7 @@ const QuestionDisplay = () => {
   };
 
   const handleAnswerSelect = (choiceIndex) => {
-    selectAnswer(currentQuestion.question_number, choiceIndex);
+    setTempSelectedAnswer(choiceIndex);
   };
 
   const handleDeferToggle = () => {
@@ -436,39 +446,43 @@ const QuestionDisplay = () => {
   const isMobile = windowWidth <= 768;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{backgroundColor: '#F7F5F8'}} dir="rtl" key={currentQuestion.question_number}>
+    <div className="min-h-screen flex flex-col relative" style={{backgroundColor: '#F7F5F8'}} dir="rtl" key={currentQuestion.question_number}>
+      {/* Watermark - أرقام مائلة في جميع أنحاء الصفحة */}
+      <div className="absolute inset-0 pointer-events-none z-0">
+        {Array.from({ length: 20 }, (_, i) => (
+          <div
+            key={i}
+            className="absolute text-gray-400 font-mono font-bold text-lg"
+            style={{
+              left: `${(i * 15) % 90 + 5}%`,
+              top: `${(i * 12) % 90 + 5}%`,
+              transform: `rotate(15deg)`,
+              opacity: 0.3
+            }}
+          >
+            1395565256
+          </div>
+        ))}
+      </div>
+
       {/* الشريط العلوي */}
-      <div className="px-4 py-3 flex items-center justify-between" style={{backgroundColor: '#068479'}}>
+      <div className="px-4 py-3 flex items-center justify-between relative z-10" style={{backgroundColor: '#068479'}}>
         <div className="text-white font-bold text-lg">اختبار</div>
         <div className="text-white font-bold text-lg">OUR GOAL</div>
       </div>
 
       {/* المحتوى الرئيسي */}
-      <div className="flex-1 flex pb-8">
+      <div className="flex-1 flex pb-8 relative z-10">
         {/* العمود الأيسر - محتوى السؤال */}
         <div className="flex-1 flex flex-col" style={{height: 'calc(100vh - 200px)'}}>
           {/* شريط المعلومات */}
           <div className="px-4 py-2 flex items-center justify-between border-2 border-gray-300" style={{backgroundColor: '#DDE7F7'}}>
-            <div className="flex items-center gap-2">
-              <button 
-                className={`px-3 py-1 border-2 rounded text-sm font-bold ${
-                  isTextEnlarged ? 'bg-yellow-400 border-yellow-500' : 'bg-white border-gray-300'
-                }`}
-                onClick={handleTextEnlarge}
-              >+A</button>
-              <button 
-                className="px-3 py-1 bg-white border border-gray-300 rounded text-sm"
-                onClick={handleCloseEnlargedText}
-              >A</button>
-              <button 
-                className="px-3 py-1 bg-white border border-gray-300 rounded text-sm"
-                onClick={handleCloseEnlargedText}
-              >-A</button>
-            </div>
-            <div className="text-gray-700 text-sm">
+            <div className="text-gray-700 text-sm font-bold">
               {examQuestions.length} مجموع الأسئلة في الاختبار | الاسئلة المحلولة <span style={{color: '#068479', fontWeight: 'bold'}}>{Object.keys(userAnswers).length}</span>
             </div>
-            <div className="text-gray-700 text-sm">رقم السؤال {getDisplayQuestionNumber()}</div>
+            <div className="flex items-center gap-2">
+              {/* تم نقل أزرار تغيير الخط إلى عمود الأسئلة */}
+            </div>
           </div>
 
            {/* محتوى السؤال */}
@@ -485,12 +499,35 @@ const QuestionDisplay = () => {
                  </div>
                )}
 
-               {/* السؤال والخيارات */}
-               <div className="p-8 border-2 border-gray-300 flex-1">
-                 {/* السؤال */}
-                 <div className="text-2xl font-bold text-gray-900 mb-8 text-right">
-                   السؤال {getDisplayQuestionNumber()}:
+             {/* السؤال والخيارات */}
+             <div className="p-8 border-2 border-gray-300 flex-1">
+               {/* أزرار تغيير الخط - في المنطقة المحددة باللون الأحمر */}
+               <div className="flex justify-end mb-4">
+                 <div className="flex items-center gap-2">
+                   <button 
+                     className={`px-3 py-1 border-2 rounded text-sm font-bold text-white ${
+                       isTextEnlarged ? 'bg-yellow-400 border-yellow-500' : 'border-gray-300'
+                     }`}
+                     style={{backgroundColor: isTextEnlarged ? '#fbbf24' : '#3f9dc3'}}
+                     onClick={handleTextEnlarge}
+                   >+A</button>
+                   <button 
+                     className="px-3 py-1 border border-gray-300 rounded text-sm text-white"
+                     style={{backgroundColor: '#3f9dc3'}}
+                     onClick={handleCloseEnlargedText}
+                   >A</button>
+                   <button 
+                     className="px-3 py-1 border border-gray-300 rounded text-sm text-white"
+                     style={{backgroundColor: '#3f9dc3'}}
+                     onClick={handleCloseEnlargedText}
+                   >-A</button>
                  </div>
+               </div>
+
+               {/* السؤال */}
+               <div className="text-2xl font-bold text-gray-900 mb-8 text-right">
+                 السؤال {getDisplayQuestionNumber()}:
+               </div>
                  
                  <div className={`text-gray-900 mb-8 text-right ${isTextEnlarged ? 'text-2xl' : 'text-xl'}`}>
                    {currentQuestion.type === 'error' ?
@@ -526,11 +563,24 @@ const QuestionDisplay = () => {
 
           {/* زر حفظ والتالي في أسفل عمود الأسئلة */}
           <div className="p-4 border-2 border-gray-300 border-t-0">
-            <div className="flex justify-end">
+            <div className="flex justify-start">
               <button
-                className="px-6 py-2 rounded font-bold hover:opacity-90 transition-colors"
-                style={{backgroundColor: '#068479', color: 'white'}}
+                className={`px-6 py-2 rounded font-bold transition-colors ${
+                  selectedAnswer !== null 
+                    ? 'hover:opacity-90' 
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
+                style={{
+                  backgroundColor: selectedAnswer !== null ? '#068479' : '#9CA3AF', 
+                  color: 'white'
+                }}
+                disabled={selectedAnswer === null}
                 onClick={() => {
+                  // حفظ الإجابة المؤقتة إذا كانت موجودة
+                  if (tempSelectedAnswer !== null) {
+                    selectAnswer(currentQuestion.question_number, tempSelectedAnswer);
+                  }
+
                   const currentQuestionNumber = currentQuestionIndex + 1;
                   const isLastQuestionInSection = currentQuestionNumber % 13 === 0;
                   const isLastQuestion = currentQuestionIndex === examQuestions.length - 1;
@@ -571,16 +621,18 @@ const QuestionDisplay = () => {
             <div className="text-4xl font-bold text-gray-900">{formatTime(timeRemaining)}</div>
           </div>
 
-          {/* معلومات المستخدم */}
-          <div className="mb-6">
-            <div className="text-gray-600 text-sm mb-1">اسم</div>
-            <div className="text-gray-900 font-medium">ts1000008@nthb.moe.gov.sa</div>
-          </div>
+           {/* معلومات المستخدم */}
+           <div className="mb-6">
+             <div className="text-gray-600 text-sm mb-1">اسم</div>
+             <div className="text-gray-900 font-medium">ts1000008@nthb.moe.gov.sa</div>
+             <div className="text-gray-600 text-sm mb-1 mt-2">رقم الإقامة</div>
+             <div className="text-gray-900 font-medium">1395565256</div>
+           </div>
 
           {/* إحصائيات الأسئلة */}
           <div className="mb-6">
-            <div className="text-gray-600 text-sm mb-2">عدد الأسئلة الرئيسية: 5</div>
-            <div className="text-gray-600 text-sm mb-4">مجموع الأسئلة 13</div>
+            <div className="text-gray-600 text-sm mb-2 font-bold">عدد الأسئلة الرئيسية: 5</div>
+            <div className="text-gray-600 text-sm mb-4 font-bold">مجموع الأسئلة 13</div>
             
             {/* مربعات الإحصائيات */}
             <div className="grid grid-cols-2 gap-2 mb-4">
@@ -592,14 +644,10 @@ const QuestionDisplay = () => {
                 <div className="text-red-800 font-bold text-lg">{examQuestions.length - Object.keys(userAnswers).length}</div>
                 <div className="text-red-700 text-xs">لم تتم الإجابة</div>
               </div>
-              <div className="bg-blue-100 border border-blue-300 rounded p-2 text-center">
-                <div className="text-blue-800 font-bold text-lg">{Object.keys(deferredQuestions).filter(q => deferredQuestions[q]).length}</div>
-                <div className="text-blue-700 text-xs">إجابة جزئية</div>
-              </div>
-              <div className="bg-gray-100 border border-gray-300 rounded p-2 text-center">
-                <div className="text-gray-800 font-bold text-lg">0</div>
-                <div className="text-gray-700 text-xs">لم تتم زيارته</div>
-              </div>
+               <div className="bg-blue-100 border border-blue-300 rounded p-2 text-center">
+                 <div className="text-blue-800 font-bold text-lg">{Object.keys(deferredQuestions).filter(q => deferredQuestions[q]).length}</div>
+                 <div className="text-blue-700 text-xs">إجابة جزئية</div>
+               </div>
             </div>
           </div>
 
@@ -692,7 +740,7 @@ const QuestionDisplay = () => {
       </div>
 
       {/* الشريط السفلي */}
-      <div className="px-8 py-4 flex items-center justify-center" style={{backgroundColor: '#068479'}}>
+      <div className="px-8 py-4 flex items-center justify-center relative z-10" style={{backgroundColor: '#068479'}}>
         <div className="text-white font-bold">OUR GOAL</div>
       </div>
 
@@ -708,3 +756,4 @@ const QuestionDisplay = () => {
 };
 
 export default QuestionDisplay;
+
